@@ -28,7 +28,9 @@ from sonavida.ports.clock import SimulatedClock
 from sonavida.ports.studiolink import RealStudioLink
 from sonavida.ports.vault import DefinitionRefused
 from sonavida.runtime import AlreadyAlive, Departed, Runtime
+from sonavida.standins.gate import ScriptedGate
 from sonavida.standins.models import ScriptedModels
+from sonavida.standins.perception import ScriptedPerception
 
 
 def _home() -> Path:
@@ -75,13 +77,22 @@ async def _run_simulated(
 ) -> int:
     clock = SimulatedClock(start=datetime(2026, 1, 1, tzinfo=UTC), seed=seed)
     models = ScriptedModels()
+    perception = ScriptedPerception()
     state = StandInState("sonavida-cli-standin")
     app = create_app(state)
     transport = httpx.ASGITransport(app=app)
     credential = "sonavida-cli-standin"
     async with StudioLinkClient("http://standin", credential, transport=transport) as client:
         studiolink = RealStudioLink(client)
-        runtime = Runtime(home=home, clock=clock, models=models, studiolink=studiolink)
+        gate = ScriptedGate(studiolink, is_reference_standin=True)
+        runtime = Runtime(
+            home=home,
+            clock=clock,
+            models=models,
+            studiolink=studiolink,
+            perception=perception,
+            gate=gate,
+        )
         if vault_root is not None:
             for persona_id, path in _discover_synthetic(vault_root, only):
                 try:

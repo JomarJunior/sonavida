@@ -4,26 +4,20 @@ from __future__ import annotations
 
 import json
 import uuid
-from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-import httpx
 import pytest
-from miraveja_studiolink.client.client import StudioLinkClient
-from miraveja_studiolink.standin.app import create_app
-from miraveja_studiolink.standin.state import StandInState
 
 from sonavida import birth
 from sonavida.ports.clock import SimulatedClock
-from sonavida.ports.studiolink import RealStudioLink, StudioLink
 from sonavida.runtime import AlreadyAlive, Departed, Runtime
+from sonavida.standins.gate import ScriptedGate
 from sonavida.standins.models import ScriptedModels
+from sonavida.standins.perception import ScriptedPerception
 
 from ..conftest import PELLAM_ID
-
-CREDENTIAL = "test-credential"
-StudioLinkAndState = tuple[StudioLink, StandInState]
+from .conftest import StudioLinkAndState
 
 
 def _presence_reply(state: str, reason: str, *, next_in: str = "PT6H") -> str:
@@ -41,15 +35,6 @@ def _presence_reply(state: str, reason: str, *, next_in: str = "PT6H") -> str:
 @pytest.fixture
 def clock() -> SimulatedClock:
     return SimulatedClock(start=datetime(2026, 1, 1, tzinfo=UTC), seed=1)
-
-
-@pytest.fixture
-async def studiolink_and_state() -> AsyncIterator[StudioLinkAndState]:
-    state = StandInState(CREDENTIAL)
-    app = create_app(state)
-    transport = httpx.ASGITransport(app=app)
-    async with StudioLinkClient("http://standin", CREDENTIAL, transport=transport) as client:
-        yield RealStudioLink(client), state
 
 
 async def test_one_birth_and_every_chosen_presence_change_is_announced_and_remembered(
@@ -71,7 +56,14 @@ async def test_one_birth_and_every_chosen_presence_change_is_announced_and_remem
         _presence_reply("in-the-studio", "back again."),
     )
 
-    runtime = Runtime(home=home, clock=clock, models=models, studiolink=studiolink)
+    runtime = Runtime(
+        home=home,
+        clock=clock,
+        models=models,
+        studiolink=studiolink,
+        perception=ScriptedPerception(),
+        gate=ScriptedGate(studiolink),
+    )
     runtime.host(store, PELLAM_ID)
 
     clock.join()
@@ -103,7 +95,14 @@ async def test_second_start_is_refused_as_already_alive(
     store = birth.birth_synthetic(PELLAM_ID, path, home=home, clock=clock)
 
     models = ScriptedModels()
-    runtime = Runtime(home=home, clock=clock, models=models, studiolink=studiolink)
+    runtime = Runtime(
+        home=home,
+        clock=clock,
+        models=models,
+        studiolink=studiolink,
+        perception=ScriptedPerception(),
+        gate=ScriptedGate(studiolink),
+    )
     runtime.host(store, PELLAM_ID)
 
     store2 = birth.birth_synthetic(PELLAM_ID, path, home=home, clock=clock)
@@ -129,7 +128,14 @@ async def test_time_away_is_remembered_after_a_simulated_studio_outage(
 
     reopened = MemoryStore(birth.persona_memory_path(home, PELLAM_ID))
     models = ScriptedModels()
-    runtime = Runtime(home=home, clock=later_clock, models=models, studiolink=studiolink)
+    runtime = Runtime(
+        home=home,
+        clock=later_clock,
+        models=models,
+        studiolink=studiolink,
+        perception=ScriptedPerception(),
+        gate=ScriptedGate(studiolink),
+    )
     runtime.host(reopened, PELLAM_ID)
 
     later_clock.join()
@@ -158,6 +164,13 @@ async def test_a_departed_persona_refuses_to_start_again(
 
     reopened = MemoryStore(birth.persona_memory_path(home, PELLAM_ID))
     models = ScriptedModels()
-    runtime = Runtime(home=home, clock=clock, models=models, studiolink=studiolink)
+    runtime = Runtime(
+        home=home,
+        clock=clock,
+        models=models,
+        studiolink=studiolink,
+        perception=ScriptedPerception(),
+        gate=ScriptedGate(studiolink),
+    )
     with pytest.raises(Departed):
         runtime.host(reopened, PELLAM_ID)

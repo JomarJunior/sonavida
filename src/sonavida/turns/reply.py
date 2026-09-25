@@ -97,6 +97,11 @@ def parse_reply(text: str, *, valid_actions: frozenset[str]) -> TurnReply:
         raise ValidationError(f"missing details for {action}: {sorted(missing)}")
     if extra:
         raise ValidationError(f"unexpected details for {action}: {sorted(extra)}")
+    if action == "submit" and "suggestedLabels" in details:
+        labels = details["suggestedLabels"]
+        valid_values = ("explicit", "violent")
+        if not isinstance(labels, list) or any(label not in valid_values for label in labels):
+            raise ValidationError("suggestedLabels must be a list of 'explicit' or 'violent'")
 
     reason = data.get("reason")
     if not isinstance(reason, str) or not reason.strip():

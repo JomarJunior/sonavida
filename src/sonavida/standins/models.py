@@ -2,7 +2,9 @@
 
 Returns deterministic text and tiny PNGs by default, and can be scripted to answer
 *starting*, *busy*, *stopping* or *failed* for a chosen number of calls, so User Story 6
-can be tested without load.
+can be tested without load. `text` and `image` requests are scripted on separate
+queues, since a single turn can call both (a reply choosing `make-attempt`, whose
+attempt then asks for an image) and the two must never be confused for one another.
 """
 
 from __future__ import annotations
@@ -30,14 +32,22 @@ class ScriptedModels:
     """FIFO of scripted outcomes; once exhausted, answers with a default result."""
 
     default_text: str = _DEFAULT_TEXT
-    _queue: deque[ModelOutcome] = field(default_factory=deque)
+    _text_queue: deque[ModelOutcome] = field(default_factory=deque)
+    _image_queue: deque[ModelOutcome] = field(default_factory=deque)
     calls: list[tuple[str, str]] = field(default_factory=list)
 
     def script(self, *outcomes: ModelOutcome) -> None:
-        self._queue.extend(outcomes)
+        """Scripts the next `text` calls (a turn's own thinking, R-7's `Busy`/`Starting`
+        answers included). Use `script_image` for `make-attempt`/`rework` outcomes."""
+        self._text_queue.extend(outcomes)
 
     def script_text(self, *texts: str) -> None:
-        self._queue.extend(ModelResult(text=t, image_bytes=None, settings_used={}) for t in texts)
+        self._text_queue.extend(
+            ModelResult(text=t, image_bytes=None, settings_used={}) for t in texts
+        )
+
+    def script_image(self, *outcomes: ModelOutcome) -> None:
+        self._image_queue.extend(outcomes)
 
     async def text(
         self,
@@ -47,8 +57,8 @@ class ScriptedModels:
         images: tuple[dict[str, str], ...] = (),
     ) -> ModelOutcome:
         self.calls.append(("text", instructions))
-        if self._queue:
-            return self._queue.popleft()
+        if self._text_queue:
+            return self._text_queue.popleft()
         return ModelResult(text=self.default_text, image_bytes=None, settings_used={})
 
     async def image(
@@ -59,6 +69,6 @@ class ScriptedModels:
         size: tuple[int, int] = (1024, 1024),
     ) -> ModelOutcome:
         self.calls.append(("image", description))
-        if self._queue:
-            return self._queue.popleft()
+        if self._image_queue:
+            return self._image_queue.popleft()
         return ModelResult(text=None, image_bytes=TINY_PNG, settings_used={"size": size})

@@ -16,7 +16,9 @@ from pathlib import Path
 from sonavida.life import Life
 from sonavida.memory.store import MemoryStore
 from sonavida.ports.clock import Clock
+from sonavida.ports.gate import AiGate
 from sonavida.ports.models import Models
+from sonavida.ports.perception import Perception
 from sonavida.ports.studiolink import StudioLink
 
 
@@ -61,11 +63,22 @@ class Runtime:
     """Hosts every living persona as its own asyncio task; nothing of one persona ever
     reaches another (FR-041)."""
 
-    def __init__(self, *, home: Path, clock: Clock, models: Models, studiolink: StudioLink) -> None:
+    def __init__(
+        self,
+        *,
+        home: Path,
+        clock: Clock,
+        models: Models,
+        studiolink: StudioLink,
+        perception: Perception,
+        gate: AiGate,
+    ) -> None:
         self.home = home
         self.clock = clock
         self.models = models
         self.studiolink = studiolink
+        self.perception = perception
+        self.gate = gate
         self.hosted: dict[str, HostedPersona] = {}
         self._stopping = asyncio.Event()
 
@@ -76,7 +89,14 @@ class Runtime:
             store.close()
             raise Departed(persona_id)
         lock = PersonaLock(self.home, persona_id)
-        life = Life(store=store, clock=self.clock, models=self.models, studiolink=self.studiolink)
+        life = Life(
+            store=store,
+            clock=self.clock,
+            models=self.models,
+            studiolink=self.studiolink,
+            perception=self.perception,
+            gate=self.gate,
+        )
         joinable = getattr(self.clock, "join", None)
         if joinable is not None:
             joinable()

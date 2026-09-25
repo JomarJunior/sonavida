@@ -5,12 +5,20 @@ from __future__ import annotations
 import os
 import shutil
 import socket
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
+import httpx
 import pytest
+from miraveja_studiolink.client.client import StudioLinkClient
+from miraveja_studiolink.standin.app import create_app
+from miraveja_studiolink.standin.state import StandInState
+
+from sonavida.ports.studiolink import RealStudioLink, StudioLink
 
 HUB_RELATIVE = Path("specs/003-cofrealma-persona-definition/contracts/examples")
+STUDIOLINK_CREDENTIAL = "test-credential"
+StudioLinkAndState = tuple[StudioLink, StandInState]
 
 PELLAM_ID = "00000000-0000-4000-8000-00000000a001"
 IVO_ID = "00000000-0000-4000-8000-00000000a002"
@@ -70,6 +78,18 @@ def sonavida_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     home.mkdir()
     monkeypatch.setenv("SONAVIDA_HOME", str(home))
     return home
+
+
+@pytest.fixture
+async def studiolink_and_state() -> AsyncIterator[StudioLinkAndState]:
+    """The Studio Link reference stand-in, in process (`httpx.ASGITransport`)."""
+    state = StandInState(STUDIOLINK_CREDENTIAL)
+    app = create_app(state)
+    transport = httpx.ASGITransport(app=app)
+    async with StudioLinkClient(
+        "http://standin", STUDIOLINK_CREDENTIAL, transport=transport
+    ) as client:
+        yield RealStudioLink(client), state
 
 
 class NetworkUsed(AssertionError):
