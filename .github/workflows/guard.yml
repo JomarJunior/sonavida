@@ -17,5 +17,5 @@ jobs:
         with:
           python-version: "3.12"
       # Pinned, not main; bump it deliberately.
-      - run: pip install "git+https://github.com/JomarJunior/miraveja-persona@196a5326f6456518af5d13772ff1ef26d1233efa"
+      - run: pip install "git+https://github.com/JomarJunior/miraveja-persona@596318087c0049370c9af0de1f8c9557b2e79c8a"
       - run: miraveja-persona guard
