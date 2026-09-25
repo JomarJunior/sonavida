@@ -1,0 +1,64 @@
+[project]
+name = "sonavida"
+version = "0.1.0"
+description = "SonaVida: a resident persona's life in the Studio."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+dependencies = [
+  "miraveja-persona @ git+https://github.com/JomarJunior/miraveja-persona@bb1b144dfa6fe7e6ad14344e2ffa7e7c7dc5b3e1",
+  "miraveja-studiolink @ git+https://github.com/JomarJunior/miraveja-studiolink@927c1a43be7c10830dafa35fd1a200cb218a1dac",
+  "httpx>=0.27",
+  "pydantic>=2.7,<3",
+  "anyio>=4.4",
+  "pyyaml>=6.0",
+]
+
+[project.scripts]
+sonavida = "sonavida.cli:main"
+
+[dependency-groups]
+dev = [
+  "pytest>=8",
+  "pytest-asyncio>=0.24",
+  "ruff>=0.6",
+  "mypy>=1.10",
+  "types-PyYAML",
+]
+
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sonavida"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.ruff.format]
+
+[tool.mypy]
+strict = true
+python_version = "3.12"
+files = ["src", "tests"]
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+# No py.typed marker upstream; the contract library's own public surface is closed
+# Pydantic models we already validate against at runtime (miraveja-studiolink v1.1.0).
+module = ["miraveja_studiolink.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests/unit", "tests/integration", "tests/privacy"]
+asyncio_mode = "auto"
+addopts = "-q"

@@ -1,0 +1,51 @@
+name: ci
+
+# Guards the public repository (Principle VIII, spec 003 FR-021), then lints, type-checks
+# and tests this component (Constitution Principle VII).
+
+on:
+  push:
+  pull_request:
+
+env:
+  # The hub's spec 004 is not merged into main yet; pinned to a commit on the
+  # 004-sonavida-persona-life branch. Bump it deliberately once the spec is merged.
+  MIRAVEJA_HUB_COMMIT: "7c7eba1f91e313edcc5537960e21df26688360a6"
+
+jobs:
+  guard:
+    name: Public repository guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Pinned, not main; bump it deliberately.
+      - run: pip install "git+https://github.com/JomarJunior/miraveja-persona@596318087c0049370c9af0de1f8c9557b2e79c8a"
+      - run: miraveja-persona guard
+
+  test:
+    name: Lint, type-check and test
+    runs-on: ubuntu-latest
+    needs: guard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: JomarJunior/miraveja-ecosystem
+          ref: ${{ env.MIRAVEJA_HUB_COMMIT }}
+          path: hub
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.8.17"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --all-groups
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy
+      - run: uv run pytest -q
+        env:
+          MIRAVEJA_HUB_PATH: ${{ github.workspace }}/hub
