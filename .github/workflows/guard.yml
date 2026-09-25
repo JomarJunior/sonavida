@@ -1,0 +1,21 @@
+name: guard
+
+# Blocks persona definitions, author's notes and vault markers not marked synthetic
+# (Principle VIII, spec 003 FR-021). The guard never prints the content it blocks.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  guard:
+    name: Public repository guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Pinned, not main; bump it deliberately.
+      - run: pip install "git+https://github.com/JomarJunior/miraveja-persona@196a5326f6456518af5d13772ff1ef26d1233efa"
+      - run: miraveja-persona guard
