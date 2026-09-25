@@ -147,15 +147,24 @@ class ModelMoraClient:
         return await self._run(body)
 
     async def _run(self, body: dict[str, object]) -> ModelOutcome:
-        submitted = await self._client.post("/modelmora/v1/requests", json=body)
+        try:
+            submitted = await self._client.post("/modelmora/v1/requests", json=body)
+        except httpx.TransportError:
+            # **🧠 ModelMora** is not reachable at all — absent, not yet up, or the
+            # Studio is between processes. Lived as the studio not being ready, the
+            # same as its own `starting` answer would be, never a crash (FR-029).
+            return Starting()
         if submitted.status_code >= 400:
             payload = submitted.json()
             return _refusal_outcome(payload["reason"], payload)
         request_id = submitted.json()["requestId"]
         while True:
-            status = await self._client.get(
-                f"/modelmora/v1/requests/{request_id}", params={"waitSeconds": 30}
-            )
+            try:
+                status = await self._client.get(
+                    f"/modelmora/v1/requests/{request_id}", params={"waitSeconds": 30}
+                )
+            except httpx.TransportError:
+                return Starting()
             if status.status_code >= 400:
                 payload = status.json()
                 return _refusal_outcome(payload["reason"], payload)

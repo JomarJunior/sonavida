@@ -1,9 +1,4 @@
-"""`sonavida` command line (contracts/cli.md).
-
-Only `run` and `status` are implemented here (T024, Phase 3). `memory` and `pieces`
-are read-only reporting, built in T040 (Phase 7); they are registered for
-`--help` discoverability and refuse clearly until then.
-"""
+"""`sonavida` command line (contracts/cli.md)."""
 
 from __future__ import annotations
 
@@ -13,7 +8,7 @@ import os
 import signal
 import sys
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import httpx
@@ -23,14 +18,17 @@ from miraveja_studiolink.standin.app import create_app
 from miraveja_studiolink.standin.state import StandInState
 
 from sonavida import birth
+from sonavida.memory import reader
 from sonavida.memory.store import MemoryStore
-from sonavida.ports.clock import SimulatedClock
+from sonavida.ports import vault
+from sonavida.ports.clock import RealClock, SimulatedClock
+from sonavida.ports.models import ModelMoraClient
 from sonavida.ports.studiolink import RealStudioLink
 from sonavida.ports.vault import DefinitionRefused
 from sonavida.runtime import AlreadyAlive, Departed, Runtime
 from sonavida.standins.gate import ScriptedGate
 from sonavida.standins.models import ScriptedModels
-from sonavida.standins.perception import ScriptedPerception
+from sonavida.standins.perception import ModelsPerception, ScriptedPerception
 
 
 def _home() -> Path:
@@ -142,6 +140,62 @@ def _install_signal_handlers(signalled: asyncio.Future[None]) -> None:
             signal.signal(sig, _handle)
 
 
+async def _run_dry_run(home: Path, *, vault_root: Path, only: Sequence[str] | None) -> int:
+    """Pre-alpha, on the Studio: real **🧠 ModelMora** and real clock, but no path can
+    ever reach a real Museum side (Principle III, R-9, contracts/cli.md)."""
+    clock = RealClock()
+    modelmora_url = os.environ.get("MODELMORA_URL", "http://127.0.0.1:8431")
+    modelmora_token = os.environ.get("MODELMORA_TOKEN", "")
+    models = ModelMoraClient(modelmora_url, modelmora_token)
+    perception = ModelsPerception(models)
+    state = StandInState("sonavida-cli-standin")
+    app = create_app(state)
+    transport = httpx.ASGITransport(app=app)
+    credential = "sonavida-cli-standin"
+    try:
+        async with StudioLinkClient("http://standin", credential, transport=transport) as client:
+            studiolink = RealStudioLink(client)
+            gate = ScriptedGate(studiolink, is_reference_standin=True)
+            runtime = Runtime(
+                home=home,
+                clock=clock,
+                models=models,
+                studiolink=studiolink,
+                perception=perception,
+                gate=gate,
+            )
+            for entry in vault.read_ledger(vault_root):
+                persona_id = str(entry["id"])
+                definition_relative = str(entry["definition"])
+                slug = Path(definition_relative).stem.removesuffix(".persona")
+                if only and slug not in only:
+                    continue
+                definition_path = vault_root / definition_relative
+                try:
+                    store = birth.birth_resident(
+                        persona_id, definition_path, vault_root, home=home, clock=clock
+                    )
+                except DefinitionRefused as refused:
+                    print(f"refused: {refused.reason}", file=sys.stderr)
+                    return 1
+                try:
+                    runtime.host(store, persona_id)
+                except AlreadyAlive:
+                    print(f"refused: already_alive: {persona_id}", file=sys.stderr)
+                    return 1
+                except Departed:
+                    print(f"refused: departed: {persona_id}", file=sys.stderr)
+                    return 1
+
+            signalled: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+            _install_signal_handlers(signalled)
+            await signalled
+            await runtime.shutdown()
+    finally:
+        await models.aclose()
+    return 0
+
+
 async def _run_real() -> int:
     # No real AI gate exists yet (roadmap 006 / T031): a real Museum side must never
     # receive a piece with a verdict that never judged the hard lines (Principle III,
@@ -168,6 +222,8 @@ def cmd_run(args: argparse.Namespace) -> int:
     if args.vault is None:
         print("refused: --vault is required outside --simulate", file=sys.stderr)
         return 2
+    if args.dry_run:
+        return asyncio.run(_run_dry_run(home, vault_root=args.vault, only=args.persona))
     return asyncio.run(_run_real())
 
 
@@ -194,14 +250,46 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def _resolve_persona_memory_path(home: Path, persona: str) -> Path | None:
+    """`persona` may be the persona id (the directory name) or its public name."""
+    direct = birth.persona_memory_path(home, persona)
+    if direct.is_file():
+        return direct
+    personas_dir = home / "personas"
+    if not personas_dir.is_dir():
+        return None
+    for persona_dir in sorted(personas_dir.iterdir()):
+        memory_path = persona_dir / "memory.sqlite"
+        if not memory_path.is_file():
+            continue
+        with MemoryStore(memory_path, mode="ro") as store:
+            if store.read_self().public_name == persona:
+                return memory_path
+    return None
+
+
 def cmd_memory(args: argparse.Namespace) -> int:
-    print("refused: not yet implemented, see T040", file=sys.stderr)
-    return 1
+    home = _home()
+    path = _resolve_persona_memory_path(home, args.persona)
+    if path is None:
+        print(f"refused: no such persona: {args.persona}", file=sys.stderr)
+        return 2
+    since = date.fromisoformat(args.from_date) if args.from_date else None
+    until = date.fromisoformat(args.to_date) if args.to_date else None
+    for entry in reader.read_memory(path, since=since, until=until):
+        print(entry.line)
+    return 0
 
 
 def cmd_pieces(args: argparse.Namespace) -> int:
-    print("refused: not yet implemented, see T040", file=sys.stderr)
-    return 1
+    home = _home()
+    path = _resolve_persona_memory_path(home, args.persona)
+    if path is None:
+        print(f"refused: no such persona: {args.persona}", file=sys.stderr)
+        return 2
+    for line in reader.read_pieces(path):
+        print(line)
+    return 0
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -214,6 +302,7 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument("--simulate", type=int, default=None, metavar="DAYS")
     run.add_argument("--seed", type=int, default=None)
     run.add_argument("--standins", action="store_true")
+    run.add_argument("--dry-run", action="store_true", dest="dry_run")
     run.set_defaults(func=cmd_run)
 
     memory = sub.add_parser("memory")
