@@ -10,7 +10,7 @@ on:
 env:
   # The hub's spec 004 is not merged into main yet; pinned to a commit on the
   # 004-sonavida-persona-life branch. Bump it deliberately once the spec is merged.
-  MIRAVEJA_HUB_COMMIT: "7c7eba1f91e313edcc5537960e21df26688360a6"
+  MIRAVEJA_HUB_COMMIT: "49b8fb95cc08c172fcde5216b0e1752dabbff775"
 
 jobs:
   guard:
