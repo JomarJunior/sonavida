@@ -1,9 +1,11 @@
-"""Hosting every living persona in one process: locks, orderly shutdown (R-5, FR-004, FR-008).
+"""Hosting every living persona in one process: locks, shutdown, departure (R-5, FR-004,
+FR-008, FR-040).
 
 `host()` is where "one place at a time" is enforced (FR-004): an exclusive
-`fcntl.flock` per persona, held for as long as it is alive. Full departed handling —
-refusing to ever restart a departed persona, and the lock guarantees around it — is
-T046 (Phase 9); here, a persona already recorded as departed simply is not hosted.
+`fcntl.flock` per persona, held for as long as it is alive, and where a persona already
+recorded as departed is refused. Once a persona's own choice completes its departure
+(`actions/leaving.py`), its memory file is set read-only on disk before its lock is
+released, so nothing — not even a bug elsewhere in the process — can write to it again.
 """
 
 from __future__ import annotations
@@ -122,7 +124,11 @@ class Runtime:
             leaveable = getattr(self.clock, "leave", None)
             if leaveable is not None:
                 leaveable()
-            if not life.departed:
+            if life.departed:
+                path = life.store.path
+                life.store.close()
+                path.chmod(0o444)
+            else:
                 await life.announce_departure()
             self.hosted[life.persona_id].lock.release()
 

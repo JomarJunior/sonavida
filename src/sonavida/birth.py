@@ -33,6 +33,21 @@ def is_alive(home: Path, persona_id: str) -> bool:
     return MemoryStore.exists(persona_memory_path(home, persona_id))
 
 
+def _reopen(memory_path: Path) -> MemoryStore:
+    """A persona already alive, continuing from memory.
+
+    A departed persona's file is read-only on disk (FR-040, runtime.py); opened
+    read-write regardless, that open itself would fail before `runtime.host` ever
+    gets the chance to refuse it cleanly as `departed`. Peeking read-only first tells
+    the two cases apart.
+    """
+    with MemoryStore(memory_path, mode="ro") as peek:
+        departed = peek.read_self().departed_at is not None
+    if departed:
+        return MemoryStore(memory_path, mode="ro")
+    return MemoryStore(memory_path)
+
+
 def _self_knowledge(definition: Definition) -> dict[str, object]:
     return {
         "about": definition.identity.about,
@@ -90,7 +105,7 @@ def _birth(
     if MemoryStore.exists(memory_path):
         # Already alive: continue from memory. The definition is not read a second
         # time (the caller above chose not to load it in this branch either).
-        return MemoryStore(memory_path)
+        return _reopen(memory_path)
 
     store = MemoryStore(memory_path)
     now = clock.now()
@@ -119,7 +134,7 @@ def birth_resident(
     opened at all (FR-002). Refusals: see `vault.load_resident`.
     """
     if is_alive(home, persona_id):
-        return MemoryStore(persona_memory_path(home, persona_id))
+        return _reopen(persona_memory_path(home, persona_id))
     definition = vault.load_resident(path, cofrealma_root)
     names = public_names_from_pasts(vault.list_pasts(cofrealma_root))
     return _birth(definition, home=home, clock=clock, known_public_names=names)
@@ -135,6 +150,6 @@ def birth_synthetic(
 ) -> MemoryStore:
     """Bring a synthetic persona alive, for tests and simulated runs only (FR-037)."""
     if is_alive(home, persona_id):
-        return MemoryStore(persona_memory_path(home, persona_id))
+        return _reopen(persona_memory_path(home, persona_id))
     definition = vault.load_synthetic(path)
     return _birth(definition, home=home, clock=clock, known_public_names=known_public_names)

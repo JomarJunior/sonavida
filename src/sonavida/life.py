@@ -17,6 +17,7 @@ from miraveja_studiolink.messages.common import PersonaRef
 
 from sonavida import inbox
 from sonavida.actions import creation, showing
+from sonavida.actions.leaving import choose_to_leave
 from sonavida.actions.nothing import chose_nothing
 from sonavida.actions.presence import set_presence
 from sonavida.memory.store import MemoryStore
@@ -405,24 +406,14 @@ class Life:
             )
 
     async def _leave(self, reply: TurnReply, now: datetime) -> None:
-        if not self.state.leaving_pending:
-            self.store.append(
-                at=now,
-                kind="thinking-of-leaving",
-                text="thinking of leaving the museum.",
-                reason=reply.reason,
-                importance=reply.importance,
-            )
-            self.state.leaving_pending = True
-            return
-        self.store.append(
-            at=now,
-            kind="departed",
-            text="departed the museum.",
+        completed = await choose_to_leave(
+            store=self.store,
+            studiolink=self.studiolink,
+            persona=self.persona_ref,
+            leaving_pending=self.state.leaving_pending,
             reason=reply.reason,
             importance=reply.importance,
+            at=now,
         )
-        self.store.record_departure(now)
-        await self.studiolink.announce_presence(self.persona_ref, "away")
-        self.state.leaving_pending = False
-        self.departed = True
+        self.state.leaving_pending = not completed
+        self.departed = completed
