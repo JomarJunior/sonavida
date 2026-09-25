@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from sonavida.memory.store import Entry
+from sonavida.memory.tokens import render_tokens
 from sonavida.turns.proposals import Proposal
 
 REPLY_SCHEMA = """\
@@ -78,8 +79,10 @@ def build_prompt(
     lines.append("What I remember:")
     if recalled:
         for entry in recalled:
+            # Strictly one by one, tokens rendered to names; never aggregated (R-10, FR-027).
+            text = render_tokens(entry.text, entry.visitor_pseudonym, entry.visitor_name)
             reason = f" — {entry.reason}" if entry.reason else ""
-            lines.append(f"- [{entry.at.isoformat(timespec='minutes')}] {entry.text}{reason}")
+            lines.append(f"- [{entry.at.isoformat(timespec='minutes')}] {text}{reason}")
     else:
         lines.append("(nothing recalled for this moment)")
     lines.append("")
