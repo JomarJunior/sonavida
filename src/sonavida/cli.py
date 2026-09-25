@@ -91,6 +91,7 @@ async def _run_simulated(
             perception=perception,
             gate=gate,
         )
+        hosted = 0
         if vault_root is not None:
             for persona_id, path in _discover_synthetic(vault_root, only):
                 try:
@@ -106,6 +107,9 @@ async def _run_simulated(
                 except Departed:
                     print(f"refused: departed: {persona_id}", file=sys.stderr)
                     return 1
+                hosted += 1
+        if hosted == 0:
+            print("no personas to bring to life", file=sys.stderr)
 
         driver_target = clock.now() + timedelta(days=days)
         clock.join()

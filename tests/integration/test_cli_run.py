@@ -95,3 +95,28 @@ def test_sigterm_announces_every_persona_as_away_before_exiting(
         presence_entries = [e for e in store.all_entries() if e.kind == "presence"]
         assert presence_entries, f"{persona_id} never announced presence"
         assert presence_entries[-1].text == "away"
+
+
+def test_simulate_with_no_personas_says_so(tmp_path: Path) -> None:
+    """An empty run is never mistaken for a working one (contracts/cli.md, T056)."""
+    home = tmp_path / "home"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "sonavida.cli",
+            "run",
+            "--simulate",
+            "1",
+            "--seed",
+            "1",
+            "--standins",
+        ],
+        cwd=Path(__file__).resolve().parents[2],
+        env=_env(home),
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "no personas to bring to life" in result.stderr
