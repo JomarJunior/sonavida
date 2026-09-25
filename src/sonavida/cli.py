@@ -328,7 +328,15 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
-    result: int = args.func(args)
+    try:
+        result: int = args.func(args)
+        sys.stdout.flush()
+    except BrokenPipeError:
+        # The reader stopped early (`sonavida memory PERSONA | head`); nothing is wrong.
+        # Point stdout at nothing so the interpreter's final flush cannot fail again.
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, sys.stdout.fileno())
+        return 0
     return result
 
 

@@ -19,7 +19,7 @@ from sonavida import inbox
 from sonavida.actions import creation, showing
 from sonavida.actions.leaving import choose_to_leave
 from sonavida.actions.nothing import chose_nothing
-from sonavida.actions.presence import set_presence
+from sonavida.actions.presence import announce_where_it_is, set_presence
 from sonavida.memory.store import MemoryStore
 from sonavida.ports.clock import Clock
 from sonavida.ports.gate import AiGate
@@ -103,6 +103,7 @@ class Life:
         self.departed = self_record.departed_at is not None
         self.state = _rebuild_state(store)
         self._inbox_refusal_counts: dict[str, int] = {}
+        self._announced = False
         self._note_time_away_if_any()
 
     def _note_time_away_if_any(self) -> None:
@@ -142,6 +143,11 @@ class Life:
         """One turn: collect, propose, ask, validate, dispatch."""
         now = self.clock.now()
         persona_uuid = uuid.UUID(self.persona_id)
+        if not self._announced:
+            await announce_where_it_is(
+                studiolink=self.studiolink, persona=self.persona_ref, state=self.state.presence
+            )
+            self._announced = True
         await inbox.collect_experiences(
             self.store,
             self.studiolink,

@@ -30,3 +30,14 @@ async def set_presence(
 ) -> None:
     store.append(at=at, kind="presence", text=state, reason=reason, importance=importance)
     await studiolink.announce_presence(persona, _TO_LINK[state])
+
+
+async def announce_where_it_is(
+    *, studiolink: StudioLink, persona: PersonaRef, state: Presence
+) -> None:
+    """Tell the museum side where the persona already is, without remembering a change.
+
+    Sent once when a persona starts living in this run, so the museum side knows it
+    before it has chosen any change (spec 001 FR-009), and its inbox is not refused.
+    """
+    await studiolink.announce_presence(persona, _TO_LINK[state])

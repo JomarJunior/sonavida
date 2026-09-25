@@ -174,3 +174,39 @@ async def test_a_departed_persona_refuses_to_start_again(
     )
     with pytest.raises(Departed):
         runtime.host(reopened, PELLAM_ID)
+
+
+async def test_a_persona_is_known_to_the_museum_side_from_its_first_turn(
+    tmp_path: Path,
+    examples: Path,
+    clock: SimulatedClock,
+    studiolink_and_state: StudioLinkAndState,
+) -> None:
+    """A persona that has not yet changed presence is still announced where it is, so
+    the museum side knows it and its inbox is not refused (FR-007, spec 001 FR-009)."""
+    studiolink, state = studiolink_and_state
+    home = tmp_path / "home"
+    path = examples / "pellam-quist.persona.yaml"
+    store = birth.birth_synthetic(PELLAM_ID, path, home=home, clock=clock)
+    born_entries = store.all_entries()
+
+    runtime = Runtime(
+        home=home,
+        clock=clock,
+        models=ScriptedModels(),
+        studiolink=studiolink,
+        perception=ScriptedPerception(),
+        gate=ScriptedGate(studiolink),
+    )
+    runtime.host(store, PELLAM_ID)
+    clock.join()
+    await clock.wait_until(clock.now() + timedelta(hours=3))
+    clock.leave()
+
+    # Checked before shutdown, which announces away and so would make it known anyway.
+    assert state.is_known_persona(uuid.UUID(PELLAM_ID))
+    assert state.presence_of(uuid.UUID(PELLAM_ID)) == "away"
+    # Announcing where it already is is not a change, so nothing new about presence is remembered.
+    new = store.all_entries()[len(born_entries) :]
+    assert not any(e.kind == "presence" for e in new)
+    await runtime.shutdown()

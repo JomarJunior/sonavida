@@ -47,6 +47,7 @@ def test_simulate_run_exits_zero_and_lives_the_synthetic_persona(
         timeout=60,
     )
     assert result.returncode == 0, result.stderr
+    assert "refused" not in result.stderr, result.stderr
 
     store = MemoryStore(persona_memory_path(home, PELLAM_ID), mode="ro")
     entries = store.all_entries()
@@ -120,3 +121,46 @@ def test_simulate_with_no_personas_says_so(tmp_path: Path) -> None:
     )
     assert result.returncode == 0, result.stderr
     assert "no personas to bring to life" in result.stderr
+
+
+def test_memory_piped_into_a_reader_that_stops_early_exits_quietly(
+    tmp_path: Path, examples: Path
+) -> None:
+    """`sonavida memory PERSONA | head` is how the quickstart reads a life; the reader
+    closing the pipe early is not an error."""
+    home = tmp_path / "home"
+    vault = make_scratch_vault(tmp_path / "vault", examples)
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "sonavida.cli",
+            "run",
+            "--vault",
+            str(vault),
+            "--simulate",
+            "2",
+            "--seed",
+            "7",
+            "--standins",
+        ],
+        cwd=Path(__file__).resolve().parents[2],
+        env=_env(home),
+        check=True,
+        capture_output=True,
+        timeout=60,
+    )
+    reader = subprocess.Popen(
+        [sys.executable, "-m", "sonavida.cli", "memory", "Pellam Quist"],
+        cwd=Path(__file__).resolve().parents[2],
+        env=_env(home),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        bufsize=0,
+    )
+    assert reader.stdout is not None and reader.stderr is not None
+    # Closed before the command can write anything, so its first write meets a closed pipe.
+    reader.stdout.close()
+    stderr = reader.stderr.read().decode()
+    assert reader.wait(timeout=30) == 0, stderr
+    assert "Traceback" not in stderr
