@@ -27,6 +27,29 @@ _GATE_OUTCOME_TO_PIECE_STATE = {
     "taken_down": "taken-down",
 }
 
+# A refusal on its own is unremarkable (a persona not yet announced, a momentary
+# hiccup); this many turns in a row is not, and the team should be told once, at
+# error level, with the reason code only — never the batch content (Principle VIII).
+CONSECUTIVE_REFUSAL_ALERT_THRESHOLD = 3
+
+
+def _note_refusal(counts: dict[str, int], queue: str, persona_id: uuid.UUID, reason: str) -> None:
+    count = counts.get(queue, 0) + 1
+    counts[queue] = count
+    logger.warning("%s refused for %s: %s", queue, persona_id, reason)
+    if count == CONSECUTIVE_REFUSAL_ALERT_THRESHOLD:
+        logger.error(
+            "%s for %s refused %d turns in a row (%s); the queue may be stuck",
+            queue,
+            persona_id,
+            count,
+            reason,
+        )
+
+
+def _note_success(counts: dict[str, int], queue: str) -> None:
+    counts[queue] = 0
+
 
 def _store_experience(store: MemoryStore, item: Experience, at: datetime) -> None:
     kind = item.kind
@@ -90,8 +113,14 @@ def _store_experience(store: MemoryStore, item: Experience, at: datetime) -> Non
 
 
 async def collect_experiences(
-    store: MemoryStore, studiolink: StudioLink, persona_id: uuid.UUID, at: datetime
+    store: MemoryStore,
+    studiolink: StudioLink,
+    persona_id: uuid.UUID,
+    at: datetime,
+    *,
+    refusal_counts: dict[str, int] | None = None,
 ) -> int:
+    counts = refusal_counts if refusal_counts is not None else {}
     from_sequence = store.experiences_acknowledged_through() + 1
     try:
         batch = await studiolink.collect_experiences(persona_id, from_sequence=from_sequence)
@@ -100,8 +129,9 @@ async def collect_experiences(
         # or the like) — or a persona not yet known to the Museum side because it has
         # never announced its presence. Either way nothing reaches the persona and
         # nothing is stored (FR-028); it is simply collected again next turn.
-        logger.warning("experiences refused: %s", refusal.reason)
+        _note_refusal(counts, "experiences", persona_id, refusal.reason)
         return 0
+    _note_success(counts, "experiences")
     for item in batch.items:
         _store_experience(store, item, at)
         store.set_experiences_acknowledged_through(item.sequence)
@@ -110,14 +140,20 @@ async def collect_experiences(
 
 
 async def collect_erasure_notices(
-    store: MemoryStore, studiolink: StudioLink, persona_id: uuid.UUID
+    store: MemoryStore,
+    studiolink: StudioLink,
+    persona_id: uuid.UUID,
+    *,
+    refusal_counts: dict[str, int] | None = None,
 ) -> int:
+    counts = refusal_counts if refusal_counts is not None else {}
     from_sequence = store.erasures_acknowledged_through() + 1
     try:
         batch = await studiolink.collect_erasure_notices(persona_id, from_sequence=from_sequence)
     except RefusalReceived as refusal:
-        logger.warning("erasure notices refused: %s", refusal.reason)
+        _note_refusal(counts, "erasure-notices", persona_id, refusal.reason)
         return 0
+    _note_success(counts, "erasure-notices")
     for notice in batch.items:
         erase_visitor(store, notice.pseudonym)
         store.set_erasures_acknowledged_through(notice.sequence)

@@ -102,6 +102,7 @@ class Life:
         )
         self.departed = self_record.departed_at is not None
         self.state = _rebuild_state(store)
+        self._inbox_refusal_counts: dict[str, int] = {}
         self._note_time_away_if_any()
 
     def _note_time_away_if_any(self) -> None:
@@ -141,8 +142,19 @@ class Life:
         """One turn: collect, propose, ask, validate, dispatch."""
         now = self.clock.now()
         persona_uuid = uuid.UUID(self.persona_id)
-        await inbox.collect_experiences(self.store, self.studiolink, persona_uuid, now)
-        await inbox.collect_erasure_notices(self.store, self.studiolink, persona_uuid)
+        await inbox.collect_experiences(
+            self.store,
+            self.studiolink,
+            persona_uuid,
+            now,
+            refusal_counts=self._inbox_refusal_counts,
+        )
+        await inbox.collect_erasure_notices(
+            self.store,
+            self.studiolink,
+            persona_uuid,
+            refusal_counts=self._inbox_refusal_counts,
+        )
 
         proposals = build_proposals(self.state, self.self_knowledge)
         recalled = self.store.recall(self._recall_query(), budget=RECALL_BUDGET)
